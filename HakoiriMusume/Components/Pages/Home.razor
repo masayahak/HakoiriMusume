@@ -1,0 +1,387 @@
+﻿@page "/"
+
+<style>
+    /* ゲーム盤全体 */
+    .board {
+        display: grid;
+        grid-template-rows: repeat(7, 50px);
+        grid-template-columns: repeat(8, 50px);
+        position: relative;
+    }
+
+    /* １つ１つのセルの書式 */
+    .cell {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 4px;
+    }
+
+    /* 壁 */
+    .wall {
+        background: #444;
+    }
+    /* 盤面 */
+    .empty {
+        background: #aaa;
+    }
+    /* 玄関 */
+    .exit {
+        background: #eee;
+        color: #333;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* 駒 */
+    .piece {
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+        cursor: pointer;
+        user-select: none;
+        touch-action: none;
+        border: 1px solid #555;
+        box-sizing: border-box;
+        transform: scale(0.97);
+    }
+        .piece:active {
+            cursor: grabbing;
+        }
+        .piece.selected {
+            outline: 5px solid orange;
+        }
+
+    /* 駒色 */
+    .Color_父 {
+        background: #b9bbdd;
+    }
+
+    .Color_娘 {
+        background: #e4bdc3;
+    }
+
+    .Color_母 {
+        background: #e9cccc;
+    }
+
+    .Color_手代 {
+        background: #f7dcb4;
+    }
+
+    .Color_大番頭 {
+        background: #dfbfaa;
+    }
+
+    .Color_兄嫁 {
+        background: #d2e7d4;
+    }
+
+    .Color_丁稚 {
+        background: #e9e3cc;
+    }
+
+    .Color_女中 {
+        background: #f3e0e3;
+    }
+
+    .Color_番頭 {
+        background: #ddcdc1;
+    }
+
+    .Color_番犬 {
+        background: #f7f0f1;
+    }
+
+    .Color_祖父 {
+        background: #adafdf;
+    }
+
+    .Color_祖母 {
+        background: #daadad;
+    }
+
+    /*メッセージ */
+    .game-message {
+        position: fixed;
+        top: 40%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 72px;
+        font-weight: bold;
+        color: #ff4081;
+        text-shadow: 0 0 10px #fff, 0 0 20px #ff80ab, 0 0 30px #ff4081;
+        animation: flash 1s infinite alternate;
+        z-index: 9999;
+        pointer-events: none;
+    }
+
+    @@keyframes flash {
+        from {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.0);
+        }
+        to {
+            opacity: 0.5;
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+    }
+</style>
+
+<div class="board"
+     @onmousemove="(e) => DragMove(e)"
+     @onmouseup="EndDrag">
+
+    @for (int row = 0; row < MaxRows; row++)
+    {
+        for (int col = 0; col < MaxCols; col++)
+        {
+            // CSSのグリッドは1オリジン
+            var cssRow = row + 1;
+            var cssCol = col + 1;
+
+            int cell = Board[row, col];
+            switch (cell)
+            {
+                case 0: // 空
+                        <div class="cell empty" style="grid-area:@(cssRow) / @(cssCol);">
+                        </div>
+                    break;
+                case 1: // 壁
+                        <div class="cell wall" style="grid-area:@(cssRow) / @(cssCol);">
+                        </div>
+                    break;
+                case 9: // 玄関
+                        <div class="cell exit" style="grid-area:@(cssRow) / @(cssCol);">
+                            玄関
+                        </div>
+                    break;
+            }
+        }
+    }
+
+    @foreach (Piece p in Pieces)
+    {
+        var cssPieceRow = p.Row + 1;
+        var cssPieceCol = p.Col + 1;
+
+        <div class="piece @(p.ColorClass) @(p == Selected ? "selected" : "")"
+             style="
+                grid-row:@cssPieceRow;
+                grid-column:@cssPieceCol;
+                width:@(p.Width * 50)px;
+                height:@(p.Height * 50)px;"
+             @onmousedown="(e) => StartDrag(p, e.ClientX, e.ClientY)">
+            @p.Label
+        </div>
+    }
+
+</div>
+
+
+@if (isCleared)
+{
+    <div class="game-message">🎉クリア🎉</div>
+}
+
+@if (isWarning)
+{
+    <div class="game-message">玄関を出てよいのは娘だけ</div>
+}
+
+
+
+@code {
+    // 盤面の定義
+    private const int MaxRows = 7;
+    private const int MaxCols = 8;
+
+    private int[,] Board = new int[MaxRows, MaxCols]
+    {
+        // 盤面定義 (0=空, 1=壁, 9=出口)
+        {1,1,1,1,1,1,1,1},
+        {1,0,0,0,0,0,0,1},
+        {1,0,0,0,0,0,0,1},
+        {1,0,0,0,0,0,0,1},
+        {1,0,0,0,0,0,0,1},
+        {1,0,0,0,0,0,0,1},
+        {1,1,1,9,9,1,1,1},
+    };
+
+
+    // 駒の定義
+    private class Piece
+    {
+        public int Row { get; set; }
+        public int Col { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public string Label { get; set; } = string.Empty;
+        public string ColorClass { get; set; } = string.Empty;
+
+        public Piece(string label, int col, int row, int w, int h, string colorClass = "piece-default")
+        {
+            Label = label;
+            Row = row;
+            Col = col;
+            Width = w;
+            Height = h;
+            ColorClass = colorClass;
+        }
+    }
+
+    // 駒のリスト
+    private List<Piece> Pieces = new List<Piece>();
+    private void InitPieces()
+    {
+        Pieces.Clear();
+        // 駒名、駒の左上の 列、行、幅、高さ、色のクラス名
+        Pieces.Add(new Piece("父", 2, 1, 1, 2, "Color_父"));
+        Pieces.Add(new Piece("娘", 3, 1, 2, 2, "Color_娘"));
+        Pieces.Add(new Piece("母", 5, 1, 1, 2, "Color_母"));
+        Pieces.Add(new Piece("手代", 1, 3, 1, 1, "Color_手代"));
+        Pieces.Add(new Piece("大番頭", 2, 3, 4, 1, "Color_大番頭"));
+        Pieces.Add(new Piece("兄嫁", 6, 3, 1, 1, "Color_兄嫁"));
+        Pieces.Add(new Piece("丁稚", 1, 4, 1, 1, "Color_丁稚"));
+        Pieces.Add(new Piece("女中", 2, 4, 2, 1, "Color_女中"));
+        Pieces.Add(new Piece("番頭", 4, 4, 2, 1, "Color_番頭"));
+        Pieces.Add(new Piece("丁稚", 6, 4, 1, 1, "Color_丁稚"));
+        Pieces.Add(new Piece("番犬", 1, 5, 1, 1, "Color_番犬"));
+        Pieces.Add(new Piece("祖父", 2, 5, 2, 1, "Color_祖父"));
+        Pieces.Add(new Piece("祖母", 4, 5, 2, 1, "Color_祖母"));
+        Pieces.Add(new Piece("丁稚", 6, 5, 1, 1, "Color_丁稚"));
+    }
+
+    protected override void OnInitialized()
+    {
+        // 盤面初期化
+        InitPieces();
+    }
+
+    // 選択中の駒
+    private Piece? Selected;
+    private int startX, startY;
+
+    // ゲームクリアと警告フラグ
+    private bool isCleared = false;
+    private bool isWarning = false;
+
+    // ドラッグ開始 
+    private void StartDrag(Piece p, double clientX, double clientY)
+    {
+        Selected = p;
+        startX = (int)clientX;
+        startY = (int)clientY;
+    }
+
+    // ドラッグ移動
+    private void DragMove(MouseEventArgs e)
+    {
+        if (Selected == null) return;
+
+        // マウス移動量（px単位）
+        int currentX = (int)e.ClientX;
+        int currentY = (int)e.ClientY;
+
+        const int cellSize = 50; // 1駒のサイズ
+        int threshold = cellSize / 2; // 50pxの半分
+
+        // 1駒の半分以上ドラッグさせたら、移動させる
+        int rowStep = 0, colStep = 0;
+        if (Math.Abs(currentX - startX) > threshold)
+        {
+            colStep = (currentX > startX) ? 1 : -1;
+            startX += colStep * cellSize;
+        }
+        if (Math.Abs(currentY - startY) > threshold)
+        {
+            rowStep = (currentY > startY) ? 1 : -1;
+            startY += rowStep * cellSize;
+        }
+
+        // 次の位置
+        int newRow = Selected.Row + rowStep;
+        int newCol = Selected.Col + colStep;
+
+        // 移動して良いか判定
+        if(CanMove(Selected, newRow, newCol))
+        {
+            // 駒位置の移動
+            Selected.Row = newRow;
+            Selected.Col = newCol;
+        }
+    }
+
+    //------------------------------------------------
+    // 移動して良いか判定する
+    //------------------------------------------------
+    private bool CanMove(Piece p, int newRow, int newCol)
+    {
+        // ----- 盤外は禁止 -----
+        if (newRow < 0 || newRow + p.Height > MaxRows) return false;
+        if (newCol < 0 || newCol + p.Width > MaxCols) return false;
+
+        // ----- 壁セルとの衝突 -----
+        bool blocked = Enumerable.Range(newRow, p.Height).Any(r =>
+            Enumerable.Range(newCol, p.Width).Any(c =>
+                Board[r, c] == 1));
+        if (blocked) return false;
+
+        // 出口判定（娘だけOK）
+        bool inExit = Enumerable.Range(newRow, p.Height).Any(r =>
+            Enumerable.Range(newCol, p.Width).Any(c =>
+                Board[r, c] == 9));
+        if (inExit)
+        {
+            if (p.Label == "娘")
+            {
+                GameClear();
+                return true;
+            }
+            else
+            {
+                ShowWarning();
+                return false;
+            }
+        }
+
+        // 他駒との衝突
+        foreach (var o in Pieces.Where(o => o != p))
+        {
+            bool overlapX = newCol < o.Col + o.Width && newCol + p.Width > o.Col;
+            bool overlapY = newRow < o.Row + o.Height && newRow + p.Height > o.Row;
+            if (overlapX && overlapY) return false;
+        }
+
+        return true;
+    }
+
+    private async void GameClear()
+    {
+        isCleared = true;
+        StateHasChanged();
+        await Task.Delay(5000);
+        isCleared = false;
+        StateHasChanged();
+    }
+
+    private async void ShowWarning()
+    {
+        isWarning = true;
+        StateHasChanged();
+        await Task.Delay(3000);
+        isWarning = false;
+        StateHasChanged();
+    }
+
+    // ドラッグ終了
+    private void EndDrag()
+    {
+        Selected = null;
+    }
+
+}
