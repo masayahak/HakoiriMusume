@@ -1,6 +1,28 @@
 ﻿@page "/"
 
 <style>
+    /* 経過時間とリセット */
+    .status {
+        margin: 15px 0;
+        user-select: none;
+    }
+
+    #reset-btn {
+        margin-left: 10px;
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        user-select: none;
+    }
+
+        #reset-btn:hover {
+            background-color: #b52a37;
+        }
+
+
     /* ゲーム盤全体 */
     .board {
         display: grid;
@@ -132,6 +154,16 @@
     }
 </style>
 
+
+<div class="status">
+    @if (isCleared)
+    {
+        <span id="elapsed-time">🎉クリア🎉</span>
+    }
+    <span id="elapsed-time">経過時間: @Elapsed 秒</span>
+    <button id="reset-btn" @onclick="ResetGame">リセット</button>
+</div>
+
 <div class="board"
      @onmousemove="(e) => DragMove(e)"
      @onmouseup="EndDrag">
@@ -260,6 +292,40 @@
     {
         // 盤面初期化
         InitPieces();
+
+        // タイマー開始
+        StartTimer();
+    }
+
+    // --------------------------------------------------
+    // タイマー
+    // --------------------------------------------------
+    private System.Threading.Timer? timer;
+    private int Elapsed = 0;
+
+    // タイマー開始
+    private void StartTimer()
+    {
+        timer?.Dispose();
+        timer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                Elapsed++;
+                StateHasChanged();
+            });
+        }, null, 1000, 1000);
+    }
+
+    // リセット
+    private void ResetGame()
+    {
+        Elapsed = 0;
+        isCleared = false;
+        isWarning = false;
+        InitPieces();
+        StartTimer();
+        StateHasChanged();
     }
 
     // 選択中の駒
@@ -362,6 +428,10 @@
 
     private async void GameClear()
     {
+        // タイマー停止
+        timer?.Dispose();
+        timer = null;
+
         isCleared = true;
         StateHasChanged();
         await Task.Delay(5000);
